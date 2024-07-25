@@ -32,7 +32,7 @@ namespace Rivened {
 			app.AddWindow(win);
 
 			win.Show();
-			Application.Run();
+			    Application.Run();
 		}
 	}
 }

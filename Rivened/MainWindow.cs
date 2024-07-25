@@ -188,7 +188,7 @@ namespace Rivened {
 						var entry = entries[i];
 						LoadedGame.Instance.decompiler.Decompile(LoadedGame.Instance.ScriptAFS, entry);
 					}
-					Console.WriteLine($"Finished decompiling {LoadedGame.Instance.decompiler.DumpCount} scripts in {stopwatch.ElapsedMilliseconds / 1000.0} seconds");
+					//Console.WriteLine($"Finished decompiling {LoadedGame.Instance.decompiler.DumpCount} scripts in {stopwatch.ElapsedMilliseconds / 1000.0} seconds");
 				});
 				decompileThread.Start();
 				/*var urls1 = new List<Task>(); // Parallel version, has a bug that makes some have to retry later
@@ -487,16 +487,16 @@ namespace Rivened {
 					}
 					if(modified || patches.Count != 0) { // the modified flag might not be necessary
 						var finalized = string.Join('\n', decompLines);
-						if(patches.Count != 0) {
-							(var ok, var txt) = ScriptCompiler.ApplyPatches(entry.Name, finalized, patches.ToArray());
-							if(ok) {
-								Program.Log(entry.Name + ": success applying patches");
-								finalized = txt;
-							} else {
-								Program.Log(entry.Name + ": error applying patch " + txt);
-								return;
-							}
-						}
+						//if(patches.Count != 0) {
+						//	(var ok, var txt) = ScriptCompiler.ApplyPatches(entry.Name, finalized, patches.ToArray());
+						//	if(ok) {
+						//		Program.Log(entry.Name + ": success applying patches");
+						//		finalized = txt;
+						//	} else {
+						//		Program.Log(entry.Name + ": error applying patch " + txt);
+						//		return;
+						//	}
+						//}
 						LoadedGame.Instance.decompiler.ChangeDump(entry.Name, finalized);
 						RefreshScriptView();
 					}

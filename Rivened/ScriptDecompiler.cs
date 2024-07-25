@@ -4,13 +4,13 @@ using System.Diagnostics;
 using System.Text;
 
 namespace Rivened {
-	public class ScriptDecompiler {
+	public class ScriptDecompiler : IDecompiler {
 		private volatile bool UseBig5 = true;
 		private volatile Dictionary<string, string> Dumps = new Dictionary<string, string>();
 		private HashSet<string> Modified = new HashSet<string>();
 		public int DumpCount => Dumps.Count;
 
-		public bool CheckAndClearModified(string filename) {
+		public override bool CheckAndClearModified(string filename) {
 			if(Modified.Contains(filename)) {
 				Modified.Remove(filename);
 				return true;
@@ -19,20 +19,20 @@ namespace Rivened {
 			return true;
 		}
 
-		public void ChangeDump(string filename, string data) {
+		public override void ChangeDump(string filename, string data) {
 			Trace.Assert(Dumps.ContainsKey(filename));
 			Dumps[filename] = data;
 			Modified.Add(filename);
 		}
 
-		public string Decompile(AFS afs, AFS.Entry entry) {
+		public override string Decompile(AFS afs, AFS.Entry entry) {
 			if(Dumps.TryGetValue(entry.Name, out var dump)) {
 				return dump;
 			}
 			return Decompile(entry.Name, entry.Load(afs));
 		}
 
-		public string Decompile(string filename, byte[] bytes) {
+		public override string Decompile(string filename, byte[] bytes) {
 			if(Dumps.TryGetValue(filename, out var cached)) {
 				return cached;
 			}
@@ -58,9 +58,9 @@ namespace Rivened {
 					var len = (int) fullLen - 2; // now pos and len are for the data, excluding the opcode and length
 					var instDump = '\n' + ((Opcode) op).ToString() + '.' + fullLen;
 					if(op == (byte) Opcode.message) {
-						instDump += ' ' + BitConverter.ToString(bytes, pos, 4) + "-S-" + BitConverter.ToString(bytes, pos + 6, len - 6) + DumpStrings(bytes, ref strsBounds, pos, 4);
+						 instDump += ' ' + BitConverter.ToString(bytes, pos, 4) + "-S-" + BitConverter.ToString(bytes, pos + 6, len - 6) + DumpStrings(bytes, ref strsBounds, pos, UseBig5, 4);
 					} else if(op == (byte) Opcode.movie_start) {
-						instDump += ' ' + "S-" + BitConverter.ToString(bytes, pos + 2, len - 2) + DumpStrings(bytes, ref strsBounds, pos, 0);
+						instDump += ' ' + "S-" + BitConverter.ToString(bytes, pos + 2, len - 2) + DumpStrings(bytes, ref strsBounds, pos, UseBig5, 0);
 					} else if(op == (byte) Opcode.Loop_Cond) {
 						var dst = (uint) bytes[pos] | (uint) bytes[pos + 1] << 8;
 						labels.Add(dst);
@@ -77,7 +77,7 @@ namespace Rivened {
 						if(len > count * 8 + 6) {
 							instDump += '-' + BitConverter.ToString(bytes, count * 8 + 6, len - count * 8 - 6);
 						}
-						instDump += DumpStrings(bytes, ref strsBounds, pos, choices);
+						instDump += DumpStrings(bytes, ref strsBounds, pos, UseBig5, choices);
 					} else if(op == (byte) Opcode.select2) { // wait, why? isn't this unused, what even was it? was this branch by mistake?
 						instDump += ' ' + DumpCmdWithStrings(bytes, ref strsBounds, len, pos, 4);
 					} else if(len > 0) {
@@ -85,7 +85,7 @@ namespace Rivened {
 					}
 					res += instDump;
 					pos += len;
-					if(pos >= strsBounds.Item1) {
+					 if(pos >= strsBounds.Item1) {
 						break;
 					}
 					//if(op == 0x0D) {
@@ -148,31 +148,6 @@ namespace Rivened {
 			new DataSectionInfo("string", 0x8, 4),
 			new DataSectionInfo("footer", 0x14, 0x14)
 		};
-
-		private string DumpStrings(byte[] bytes, ref (int, int) strsBounds, int dataPos, params int[] strsPos) {
-			string res = "";
-			for(int i = 0; i < strsPos.Length; i++) {
-				var strStart = bytes[dataPos + strsPos[i]] | bytes[dataPos + strsPos[i] + 1] << 8;
-				int strEnd = strStart;
-				while(bytes[strEnd] != 0) {
-					strEnd++;
-				}
-				if(strStart < strsBounds.Item1) {
-					strsBounds.Item1 = strStart;
-				}
-				if(strEnd + 1 > strsBounds.Item2) {
-					strsBounds.Item2 = strEnd + 1;
-				}
-				var str = UseBig5? Big5.Decode(bytes.AsSpan(strStart..strEnd)):
-				 	Program.SJIS.GetString(bytes.AsSpan(strStart..strEnd));
-				if(i + 1 == strsPos.Length) {
-					res += " @" + str;
-				} else {
-					res += " §" + str + '§';
-				}
-			}
-			return res;
-		}
 
 		private string DumpCmdWithStrings(byte[] bytes, ref (int, int) strsBounds, int len, int dataPos, params int[] strsPos) {
 			var res = strsPos[0] != 0? BitConverter.ToString(bytes, dataPos, strsPos[0]) + '-': "";

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 using IFile = GLib.IFile;
 
@@ -9,11 +10,20 @@ namespace Rivened {
 
 		public static bool Load(IFile path) {
 			Instance = null;
+
+			//PC Version
 			if((path.ResolveRelativePath("FILE/SCENE00.afs")?.Exists == true ||
 					path.ResolveRelativePath("FILE/SCENE00.afs.bak")?.Exists == true) &&
 					path.ResolveRelativePath("FILE/FONTS_PC.AFS")?.Exists == true &&
 					path.ResolveRelativePath("FILE/BGL/BGL00_PC.AFS")?.Exists == true) {
-				Instance = new LoadedGame(path);
+				Instance = new LoadedGame(path, true);
+				return true;
+			}
+
+			//PSP Version
+			else if(path.ResolveRelativePath("MAC.AFS")?.Exists == true ||
+						path.ResolveRelativePath("MAC.AFS.bak")?.Exists == true) {
+				Instance = new LoadedGame(path, false);
 				return true;
 			}
 			return false;
@@ -31,31 +41,53 @@ namespace Rivened {
 				|| name.StartsWith("INIT")
 				|| name.StartsWith("CLRFLG")
 				|| name.StartsWith("DICT")
-				|| name.StartsWith("DATA");
+				|| name.StartsWith("DATA")
+
+				// PSP Version
+				|| name.StartsWith("APPEND")
+				|| name.StartsWith("STARTUP");
 		}
 
-		public ScriptDecompiler decompiler = new ScriptDecompiler();
+		public IDecompiler decompiler;
+		public ICompiler compiler;
 		public IFile Path;
+		public string AFSFileName;
+		public string AFSFileNameBackup;
 		public bool ScriptsPrepared = false;
 		public bool ScriptListDirty = false;
 		public AFS ScriptAFS;
 		public FontSizeData FontSizeData = null;
+		bool isPCVersion = true;
 
-		public LoadedGame(IFile path) {
+		public LoadedGame(IFile path, bool isPC) {
 			Path = path;
-			if(Path.ResolveRelativePath("FILE/SCENE00.afs")?.Exists == true &&
-					Path.ResolveRelativePath("FILE/SCENE00.afs.bak")?.Exists == true) {
+			isPCVersion = isPC;
+			if(isPC) {
+				AFSFileName = "FILE/SCENE00.afs";
+				AFSFileNameBackup = "FILE/SCENE00.afs.bak";
+				decompiler = new ScriptDecompiler();
+				compiler = new ScriptCompiler();
+			} else {
+				AFSFileName = "MAC.afs";
+				AFSFileNameBackup = "MAC.afs.bak";
+				decompiler = new ScriptDecompilerPSP();
+				compiler = new ScriptCompilerPSP();
+			}
+
+			
+			if(Path.ResolveRelativePath(AFSFileName)?.Exists == true &&
+				Path.ResolveRelativePath(AFSFileNameBackup)?.Exists == true) {
 				Trace.Assert(LoadScripts());
 			}
 		}
 
 		public bool PrepareScripts() {
-			if(Path.ResolveRelativePath("FILE/SCENE00.afs")?.Exists == true &&
-					Path.ResolveRelativePath("FILE/SCENE00.afs.bak")?.Exists == true) {
+			if(Path.ResolveRelativePath(AFSFileName)?.Exists == true &&
+					Path.ResolveRelativePath(AFSFileNameBackup)?.Exists == true) {
 				return LoadScripts();
 			}
-			var sceneBackup = Path.ResolveRelativePath("FILE/SCENE00.afs.bak");
-			var scene = Path.ResolveRelativePath("FILE/SCENE00.afs");
+			var sceneBackup = Path.ResolveRelativePath(AFSFileNameBackup);
+			var scene = Path.ResolveRelativePath(AFSFileName);
 			if(!sceneBackup.Exists) {
 				scene.Copy(sceneBackup, GLib.FileCopyFlags.AllMetadata, null, null);
 			}
@@ -66,12 +98,12 @@ namespace Rivened {
 		}
 
 		public bool RevertScripts() {
-			var sceneBackup = Path.ResolveRelativePath("FILE/SCENE00.afs.bak");
-			var scene = Path.ResolveRelativePath("FILE/SCENE00.afs");
-			if(Path.ResolveRelativePath("FILE/SCENE00.afs.bak")?.Exists == true) {
+			var sceneBackup = Path.ResolveRelativePath(AFSFileName);
+			var scene = Path.ResolveRelativePath(AFSFileName);
+			if(Path.ResolveRelativePath(AFSFileName)?.Exists == true) {
 				sceneBackup.Copy(scene, GLib.FileCopyFlags.Overwrite | GLib.FileCopyFlags.AllMetadata, null, null);
 				decompiler = new ScriptDecompiler();
-				ScriptAFS = new AFS(Path.ResolveRelativePath("FILE/SCENE00.afs"));
+				ScriptAFS = new AFS(Path.ResolveRelativePath(AFSFileName));
 				FontSizeData ??= new FontSizeData(Path.ResolveRelativePath("FILE/FONTS_PC.AFS"));
 				ScriptListDirty = true;
 				return true;
@@ -81,8 +113,10 @@ namespace Rivened {
 
 		public bool LoadScripts() {
 			ScriptsPrepared = true;
-			ScriptAFS = new AFS(Path.ResolveRelativePath("FILE/SCENE00.afs"));
-			FontSizeData ??= new FontSizeData(Path.ResolveRelativePath("FILE/FONTS_PC.AFS"));
+			ScriptAFS = new AFS(Path.ResolveRelativePath(AFSFileName));
+			if (isPCVersion) {
+				FontSizeData ??= new FontSizeData(Path.ResolveRelativePath("FILE/FONTS_PC.AFS"));
+			}
 			ScriptListDirty = true;
 			return true;
 		}
@@ -94,27 +128,27 @@ namespace Rivened {
 			foreach(var entry in ScriptAFS.Entries) {
 				entry.Load(ScriptAFS);
 				if((IsSpecial(entry.Name) || !ShouldIgnore(entry.Name)) && decompiler.CheckAndClearModified(entry.Name)) {
-					var fn = () => {
-						if(ScriptCompiler.Compile(entry.Name, decompiler.Decompile(ScriptAFS, entry), out var arr, out var err)) {
+					//var fn = () => {
+						if(compiler.Compile(entry.Name, decompiler.Decompile(ScriptAFS, entry), out var arr, out var err)) {
 							Trace.Assert(arr.Length != 0);
-							Trace.Assert(arr[0] != 0);
+							//Trace.Assert(arr[0] != 0);
 							entry.SetData(arr);
 						} else {
 							err = entry.Name + ':' + err;
 							Program.Log(err);
 							lastErr = err;
-							return;
+							return false;
 						}
-					};
-					if(isFirst) {
-						fn();
-						isFirst = false;
-					} else {
-						tasks.Add(Task.Factory.StartNew(fn));
-					}
+					//};
+					//if(isFirst) {
+					//	fn();
+					//	isFirst = false;
+					//} else {
+					//	tasks.Add(Task.Factory.StartNew(fn));
+					//}
 				}
 			}
-			Task.WaitAll(tasks.ToArray());
+			//Task.WaitAll(tasks.ToArray());
 			if(lastErr != null) {
 				Program.LatestLog = lastErr;
 				MainWindow.Instance.UpdateState();

@@ -5,8 +5,8 @@ using System.IO;
 using System.Text;
 
 namespace Rivened {
-	public class ScriptCompiler {
-		public static (bool, string) ApplyPatches(string filename, string src, string[] patches) {
+	public class ScriptCompiler : ICompiler {
+		public (bool, string) ApplyPatches(string filename, string src, string[] patches) {
 			if(patches.Length == 0) return (true, src);
 			var insertIdx = src.LastIndexOf("\ntrailer.");
 			var lines = new List<string>(src.Split('\n'));
@@ -62,7 +62,7 @@ namespace Rivened {
 			return (true, string.Join('\n', lines));
 		}
 
-		public static bool Compile(string filename, string source, out byte[] arr, out string err) {
+		public bool Compile(string filename, string source, out byte[] arr, out string err) {
 			var isDataBin = filename == "DATA.BIN";
 			arr = null;
 			using var stream = new MemoryStream();
